@@ -1,15 +1,14 @@
-import type { Asset, GetAssetResponseList } from "helius-sdk/types/das";
 import type { TokenAsset } from "@/types";
-import { helius } from "@/utils/helius";
+import { helius, type DasAsset, type DasAssetList } from "@/utils/helius";
 import { mapDasAsset } from "@/utils/mapDasAsset";
 
 const PAGE_LIMIT = 1000;
 const MAX_PAGES = 20;
 
 const fetchAllPages = async (
-  fetchPage: (page: number) => Promise<GetAssetResponseList>
-): Promise<Asset[]> => {
-  const items: Asset[] = [];
+  fetchPage: (page: number) => Promise<DasAssetList>
+): Promise<DasAsset[]> => {
+  const items: DasAsset[] = [];
 
   for (let page = 1; page <= MAX_PAGES; page += 1) {
     const response = await fetchPage(page);
@@ -46,7 +45,7 @@ export const fetchWalletTokenAssets = async (
     ),
   ]);
 
-  const byId = new Map<string, Asset>();
+  const byId = new Map<string, DasAsset>();
   for (const asset of owned) {
     byId.set(asset.id, asset);
   }
