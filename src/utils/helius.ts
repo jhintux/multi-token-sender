@@ -1,15 +1,23 @@
-import { Helius } from 'helius-sdk';
+import { createHelius } from "helius-sdk";
 
-// Create a singleton instance of Helius
-let heliusInstance: Helius | null = null;
+const getHeliusClient = () => {
+  const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || "";
+  const apiKey = process.env.HELIUS_API_KEY || "";
+  const network = rpcUrl.includes("devnet") ? "devnet" : "mainnet";
 
-const getHeliusInstance = () => {
-  if (!heliusInstance) {
-    const url = process.env.NEXT_PUBLIC_RPC_URL || "";
-    const apiKey = process.env.HELIUS_API_KEY || "";
-    heliusInstance = new Helius(apiKey, url.includes('devnet') ? 'devnet' : 'mainnet-beta', undefined, url);
+  if (!rpcUrl) {
+    return createHelius({ apiKey, network });
   }
-  return heliusInstance;
+
+  const parsed = new URL(rpcUrl);
+  const apiKeyFromUrl = parsed.searchParams.get("api-key") || apiKey;
+  const baseUrl = `${parsed.origin}${parsed.pathname}`;
+
+  return createHelius({
+    apiKey: apiKeyFromUrl,
+    network,
+    baseUrl,
+  });
 };
 
-export const helius = getHeliusInstance();
+export const helius = getHeliusClient();

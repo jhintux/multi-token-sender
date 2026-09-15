@@ -1,4 +1,4 @@
-import { Checkbox, Input, Table } from "@chakra-ui/react";
+import { Checkbox, Input, Table, Text } from "@chakra-ui/react";
 import { type TokenAsset } from "@/types";
 interface TokenRowProps {
   item: TokenAsset;
@@ -31,6 +31,19 @@ export const TokenRow = ({ item, isSelected, onSelectionChange, onAmountChange }
           />
         )}
         {item.name}
+        {item.isToken2022 && (
+          <Text
+            as="span"
+            fontSize="2xs"
+            color="gray.500"
+            borderWidth="1px"
+            borderColor="gray.300"
+            rounded="sm"
+            px="1"
+          >
+            Token-2022
+          </Text>
+        )}
       </div>
     </Table.Cell>
     <Table.Cell>{item.amount}</Table.Cell>

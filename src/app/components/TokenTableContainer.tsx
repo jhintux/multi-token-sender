@@ -1,12 +1,12 @@
 "use client";
 
-import { ActionBar, Checkbox, Portal, Stack, Box } from "@chakra-ui/react";
-import { useEffect, useState } from "react";
-import { type DAS } from "helius-sdk";
-import { TokenTable } from "./TokenTable";
+import { ActionBar, Checkbox, Input, InputGroup, Portal, Stack, Box } from "@chakra-ui/react";
+import { useEffect, useMemo, useState } from "react";
+import { LuSearch } from "react-icons/lu";
+import { TokenTable, type ColumnSort, type SortDirection } from "./TokenTable";
 import { Pagination } from "./Pagination";
 import { ActionBarContent } from "./ActionBarContent";
-import { type TokenAsset } from "@/types";
+import { isFungibleToken, type TokenAsset } from "@/types";
 
 const ITEMS_PER_PAGE = 50;
 
@@ -15,6 +15,12 @@ export const TokenTableContainer = ({ user }: { user: string }) => {
   const [page, setPage] = useState(1);
   const [allAssets, setAllAssets] = useState<TokenAsset[]>([]);
   const [showOnlyFungible, setShowOnlyFungible] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sort, setSort] = useState<ColumnSort>({
+    column: "name",
+    direction: "asc",
+  });
+  const [minAmount, setMinAmount] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [receiver, setReceiver] = useState("");
 
@@ -24,30 +30,20 @@ export const TokenTableContainer = ({ user }: { user: string }) => {
     const fetchAssets = async () => {
       setIsLoading(true);
       try {
-        const response = await fetch(`/api/assets?owner=${user}`);
-        const data: DAS.GetAssetResponseList = await response.json();
+        const response = await fetch(
+          `/api/assets?owner=${encodeURIComponent(user)}`
+        );
+        if (!response.ok) {
+          throw new Error("Failed to fetch assets");
+        }
 
-        const newAssets = data.items.map((asset: DAS.GetAssetResponse) => ({
-          id: asset.id,
-          name: asset.content?.metadata?.name || "Unknown",
-          image: asset.content?.links?.image,
-          amount: asset.token_info?.balance
-            ? asset.token_info?.balance /
-              10 ** (asset.token_info?.decimals || 0)
-            : 0,
-          decimals: asset.token_info?.decimals || 0,
-          interface: asset.interface,
-          amountToSend: asset.token_info?.balance
-            ? asset.token_info?.balance /
-              10 ** (asset.token_info?.decimals || 0)
-            : 0,
-          associated_token_address: asset.token_info?.associated_token_address || "",
-          token_program: asset.token_info?.token_program || "",
-        }));
-
-        setAllAssets(newAssets);
+        const data: { items?: TokenAsset[] } = await response.json();
+        setAllAssets(data.items ?? []);
+        setSelection([]);
+        setPage(1);
       } catch (error) {
         console.error("Error fetching assets:", error);
+        setAllAssets([]);
       } finally {
         setIsLoading(false);
       }
@@ -56,14 +52,65 @@ export const TokenTableContainer = ({ user }: { user: string }) => {
     fetchAssets();
   }, [user]);
 
-  const filteredAssets = showOnlyFungible
-    ? allAssets.filter((asset) => asset.interface === "FungibleToken")
-    : allAssets;
+  const filteredAssets = useMemo(() => {
+    let assets = showOnlyFungible
+      ? allAssets.filter(isFungibleToken)
+      : allAssets;
 
-  const totalPages = Math.ceil(filteredAssets.length / ITEMS_PER_PAGE);
+    const query = searchQuery.trim().toLowerCase();
+    if (query) {
+      assets = assets.filter(
+        (asset) =>
+          asset.name.toLowerCase().includes(query) ||
+          asset.id.toLowerCase().includes(query)
+      );
+    }
+
+    const min = Number(minAmount);
+    if (minAmount.trim() !== "" && !Number.isNaN(min)) {
+      assets = assets.filter((asset) => asset.amount > min);
+    }
+
+    if (!sort) return assets;
+
+    return [...assets].sort((a, b) => {
+      if (sort.column === "name") {
+        const comparison = a.name.localeCompare(b.name, undefined, {
+          sensitivity: "base",
+          numeric: true,
+        });
+        return sort.direction === "asc" ? comparison : -comparison;
+      }
+
+      const comparison = a.amount - b.amount;
+      return sort.direction === "asc" ? comparison : -comparison;
+    });
+  }, [allAssets, showOnlyFungible, searchQuery, minAmount, sort]);
+
+  const handleTokenSortChange = (direction: SortDirection | null) => {
+    setSort(direction ? { column: "name", direction } : null);
+    setPage(1);
+  };
+
+  const handleAmountSortChange = (direction: SortDirection | null) => {
+    setSort(direction ? { column: "amount", direction } : null);
+    setPage(1);
+  };
+
+  const handleMinAmountChange = (value: string) => {
+    setMinAmount(value);
+    setPage(1);
+  };
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredAssets.length / ITEMS_PER_PAGE)
+  );
   const startIndex = (page - 1) * ITEMS_PER_PAGE;
-  const endIndex = startIndex + ITEMS_PER_PAGE;
-  const currentPageAssets = filteredAssets.slice(startIndex, endIndex);
+  const currentPageAssets = filteredAssets.slice(
+    startIndex,
+    startIndex + ITEMS_PER_PAGE
+  );
 
   const handleAmountChange = (id: string, value: number) => {
     setAllAssets((prev) =>
@@ -78,7 +125,14 @@ export const TokenTableContainer = ({ user }: { user: string }) => {
 
   return (
     <Stack width="full" gap="5">
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
+      <Box
+        display="flex"
+        justifyContent="space-between"
+        alignItems="center"
+        gap={4}
+        flexWrap="wrap"
+        mb={4}
+      >
         <Checkbox.Root
           checked={showOnlyFungible}
           onCheckedChange={(changes) => {
@@ -90,6 +144,24 @@ export const TokenTableContainer = ({ user }: { user: string }) => {
           <Checkbox.Control />
           <Checkbox.Label color="gray.700">Show tokens only</Checkbox.Label>
         </Checkbox.Root>
+        <InputGroup
+          startElement={<LuSearch />}
+          width="280px"
+          maxW="full"
+          ml="auto"
+        >
+          <Input
+            placeholder="Search tokens"
+            value={searchQuery}
+            onChange={(event) => {
+              setSearchQuery(event.target.value);
+              setPage(1);
+            }}
+            size="sm"
+            bg="white"
+            aria-label="Search tokens"
+          />
+        </InputGroup>
       </Box>
 
       <TokenTable
@@ -98,6 +170,16 @@ export const TokenTableContainer = ({ user }: { user: string }) => {
         onSelectionChange={setSelection}
         onAmountChange={handleAmountChange}
         isLoading={isLoading}
+        emptyMessage={
+          searchQuery.trim() || minAmount.trim()
+            ? "No matching tokens"
+            : "No tokens found"
+        }
+        sort={sort}
+        minAmount={minAmount}
+        onTokenSortChange={handleTokenSortChange}
+        onAmountSortChange={handleAmountSortChange}
+        onMinAmountChange={handleMinAmountChange}
       />
 
       <Pagination

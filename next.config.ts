@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  agentRules: false,
+  serverExternalPackages: ["helius-sdk"],
   experimental: {
     optimizePackageImports: ["@chakra-ui/react"],
   }

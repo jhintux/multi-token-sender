@@ -1,4 +1,7 @@
-import { type Interface } from "helius-sdk";
+export const TOKEN_2022_PROGRAM_ID =
+  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+
+export const FUNGIBLE_INTERFACES = new Set(["FungibleToken", "FungibleAsset"]);
 
 export interface TokenAsset {
   id: string;
@@ -7,7 +10,11 @@ export interface TokenAsset {
   image?: string;
   amount: number;
   decimals: number;
-  interface: Interface;
+  interface: string;
   amountToSend?: number;
   token_program: string;
+  isToken2022: boolean;
 }
+
+export const isFungibleToken = (asset: TokenAsset) =>
+  FUNGIBLE_INTERFACES.has(asset.interface);

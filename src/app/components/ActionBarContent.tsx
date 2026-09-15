@@ -1,21 +1,12 @@
 import { ActionBar, Button, CloseButton, Input, Link } from "@chakra-ui/react";
 import { type TokenAsset } from "@/types";
-import {
-  createAssociatedTokenAccountInstruction,
-  createTransferInstruction,
-  getAccount,
-  getAssociatedTokenAddressSync,
-  TokenAccountNotFoundError,
-} from "@solana/spl-token";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import {
-  PublicKey,
-  TransactionInstruction,
-  TransactionMessage,
-  VersionedTransaction,
-} from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { toaster } from "@/components/ui/toaster";
 import { LuExternalLink } from "react-icons/lu";
+import { buildTransferInstructionGroups } from "@/utils/buildTransferInstructions";
+import { sendPackedTransfers } from "@/utils/sendPackedTransfers";
+import { useState } from "react";
 
 interface ActionBarContentProps {
   receiver: string;
@@ -30,102 +21,64 @@ export const ActionBarContent = ({
   onReceiverPaste,
   selectedAssets,
 }: ActionBarContentProps) => {
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, signTransaction, wallet } = useWallet();
   const { connection } = useConnection();
+  const [isSending, setIsSending] = useState(false);
 
   const formatAddress = (address: string) => {
     if (address.length <= 10) return address;
     return `${address.slice(0, 5)}...${address.slice(-5)}`;
   };
 
-  const sleep = (ms: number) =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
   const sendAssets = async () => {
-    if (!publicKey) return;
-    const receiverPk = new PublicKey(receiver);
+    if (!publicKey || isSending) return;
 
-    const allInstructions: TransactionInstruction[] = [];
+    setIsSending(true);
+    try {
+      const receiverPk = new PublicKey(receiver);
+      const groups = await buildTransferInstructionGroups({
+        connection,
+        owner: publicKey,
+        receiver: receiverPk,
+        assets: selectedAssets,
+      });
 
-    for (const asset of selectedAssets) {
-      const mint = new PublicKey(asset.id);
-      const tokenProgram = new PublicKey(asset.token_program);
-
-      const receiverTokenAddress = getAssociatedTokenAddressSync(
-        mint,
-        receiverPk,
-        false,
-        tokenProgram
-      );
-
-      try {
-        await getAccount(connection, receiverTokenAddress);
-        await sleep(300);
-      } catch (error: unknown) {
-        if (error instanceof TokenAccountNotFoundError) {
-          allInstructions.push(
-            createAssociatedTokenAccountInstruction(
-              publicKey,
-              receiverTokenAddress,
-              receiverPk,
-              mint,
-              tokenProgram
-            )
-          );
-        } else {
-          throw error;
-        }
+      if (groups.length === 0) {
+        toaster.create({
+          title: "Nothing to send",
+          description: "Select tokens with an amount greater than 0.",
+          type: "error",
+        });
+        return;
       }
 
-      if (!asset.amountToSend) continue;
+      const signatures = await sendPackedTransfers({
+        adapter: wallet?.adapter,
+        connection,
+        payer: publicKey,
+        groups,
+        signTransaction,
+      });
 
-      allInstructions.push(
-        createTransferInstruction(
-          new PublicKey(asset.associated_token_address!),
-          receiverTokenAddress,
-          publicKey,
-          asset.amountToSend * 10 ** (asset.decimals || 0),
-          [],
-          tokenProgram
-        )
-      );
-    }
-
-    // Split instructions into chunks that fit within transaction size limit
-    const chunkSize = 8; // Adjust this number based on your needs
-    const latestBlockhash = await connection.getLatestBlockhash();
-    for (let i = 0; i < allInstructions.length; i += chunkSize) {
-      const chunk = allInstructions.slice(i, i + chunkSize);
-      const messageV0 = new TransactionMessage({
-        payerKey: publicKey,
-        recentBlockhash: latestBlockhash.blockhash,
-        instructions: chunk,
-      }).compileToV0Message();
-
-      const transaction = new VersionedTransaction(messageV0);
-
-      if (signTransaction) {
-        try {
-          const signedTransaction = await signTransaction(transaction);
-          const signature = await connection.sendTransaction(signedTransaction);
-
-          toaster.create({
-            title: "Transaction sent",
-            description: (
-              <Link href={`https://solscan.io/tx/${signature}`}>
-                See transaction <LuExternalLink />
-              </Link>
-            ),
-            type: "success",
-          });
-        } catch (error: unknown) {
-          toaster.create({
-            title: "Error sending transaction",
-            description: error?.toString() ?? "",
-            type: "error",
-          });
-        }
+      for (const signature of signatures) {
+        toaster.create({
+          title: "Transaction sent",
+          description: (
+            <Link href={`https://solscan.io/tx/${signature}`}>
+              See transaction <LuExternalLink />
+            </Link>
+          ),
+          type: "success",
+        });
       }
+    } catch (error: unknown) {
+      toaster.create({
+        title: "Error sending transaction",
+        description: error instanceof Error ? error.message : String(error),
+        type: "error",
+      });
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -141,7 +94,13 @@ export const ActionBarContent = ({
         }}
       />
       <ActionBar.Separator />
-      <Button variant="outline" size="sm" onClick={sendAssets}>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={sendAssets}
+        loading={isSending}
+        disabled={isSending}
+      >
         Send
       </Button>
       <ActionBar.CloseTrigger asChild>
